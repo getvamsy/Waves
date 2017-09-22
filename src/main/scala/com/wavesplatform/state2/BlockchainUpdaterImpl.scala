@@ -6,6 +6,7 @@ import cats._
 import cats.implicits._
 import com.wavesplatform.features.FeatureProvider
 import com.wavesplatform.history.HistoryWriterImpl
+import com.wavesplatform.metrics.TxsInBlockchainStats
 import com.wavesplatform.settings.FunctionalitySettings
 import com.wavesplatform.state2.BlockchainUpdaterImpl._
 import com.wavesplatform.state2.NgState._
@@ -106,6 +107,7 @@ class BlockchainUpdaterImpl private(persisted: StateWriter with StateReader,
             composite(currentPersistedBlocksState, () => referencedLiquidDiff.copy(heightDiff = 1)),
             Some(referencedForgedBlock), block))
             .map { hardenedDiff =>
+              TxsInBlockchainStats.record(ng.transactions.size)
               topMemoryDiff.transform(Monoid.combine(_, referencedLiquidDiff))
               (hardenedDiff, discarded.flatMap(_.transactionData))
             }
@@ -158,7 +160,9 @@ class BlockchainUpdaterImpl private(persisted: StateWriter with StateReader,
             }
           }
           logHeights(s"Rollback to h=$height completed:")
-          Right(discardedTransactions.result())
+          val r = discardedTransactions.result()
+          TxsInBlockchainStats.record(r.size)
+          Right(r)
       }
     }
   }
