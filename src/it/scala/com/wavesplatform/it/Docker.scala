@@ -1,12 +1,14 @@
 package com.wavesplatform.it
 
+import java.io.FileOutputStream
+import java.nio.file.{Files, Paths}
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.{Collections, Properties, List => JList, Map => JMap}
 
 import com.fasterxml.jackson.databind.ObjectMapper
 import com.fasterxml.jackson.dataformat.javaprop.JavaPropsMapper
 import com.google.common.collect.ImmutableMap
-import com.spotify.docker.client.DefaultDockerClient
+import com.spotify.docker.client.{DefaultDockerClient, DockerClient}
 import com.spotify.docker.client.DockerClient.RemoveContainerParam
 import com.spotify.docker.client.messages.{ContainerConfig, HostConfig, NetworkConfig, PortBinding}
 import com.typesafe.config.{Config, ConfigFactory, ConfigRenderOptions}
@@ -40,6 +42,7 @@ class Docker(suiteConfig: Config = ConfigFactory.empty) extends AutoCloseable wi
   private val client = DefaultDockerClient.fromEnv().build()
   private var nodes = Map.empty[String, Node]
   private var seedAddress = Option.empty[String]
+
   private val isStopped = new AtomicBoolean(false)
 
   sys.addShutdownHook {
@@ -86,6 +89,26 @@ class Docker(suiteConfig: Config = ConfigFactory.empty) extends AutoCloseable wi
       this.##.toLong.toHexString).id()
     connectToNetwork(containerId)
     client.startContainer(containerId)
+
+    Option(System.getenv("TEST_CONTAINERS_LOG_DIR")).foreach { rawLogDir =>
+      val logDir = Paths.get(rawLogDir)
+      Files.createDirectories(logDir)
+
+      val logFile = logDir.resolve(s"$containerId.log").toFile
+      log.trace(s"Writing logs of $containerId to ${logFile.getAbsolutePath}")
+
+      val fileStream = new FileOutputStream(logFile, false)
+      client
+        .logs(
+          containerId,
+          DockerClient.LogsParam.timestamps(),
+          DockerClient.LogsParam.follow(),
+          DockerClient.LogsParam.stdout(),
+          DockerClient.LogsParam.stderr()
+        )
+        .attach(fileStream, fileStream)
+    }
+
     val containerInfo = client.inspectContainer(containerId)
 
     val ports = containerInfo.networkSettings().ports()
